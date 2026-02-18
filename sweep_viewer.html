@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stellarator sweep viewer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
+
+    :root {
+      --bg: #0f1419;
+      --bg-panel: #1a2332;
+      --accent: #3b82f6;
+      --accent-dim: #2563eb;
+      --pass: #22c55e;
+      --fail: #ef4444;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --border: #334155;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .viewer {
+      display: flex;
+      gap: 1rem;
+      padding: 1.5rem;
+      max-width: 1100px;
+      max-height: 90vh;
+      width: 100%;
+    }
+
+    /* Scrubbing bar */
+    .scrubber-rail {
+      width: 24px;
+      min-width: 24px;
+      background: var(--bg-panel);
+      border-radius: 12px;
+      position: relative;
+      cursor: ns-resize;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .scrubber-track {
+      position: absolute;
+      left: 50%;
+      top: 12px;
+      bottom: 12px;
+      width: 6px;
+      margin-left: -3px;
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .scrubber-thumb {
+      position: absolute;
+      left: 50%;
+      width: 20px;
+      height: 28px;
+      margin-left: -10px;
+      margin-top: -14px;
+      background: var(--accent);
+      border-radius: 6px;
+      cursor: grab;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      transition: transform 0.1s;
+      z-index: 2;
+    }
+
+    .scrubber-thumb:hover { background: var(--accent-dim); }
+    .scrubber-thumb:active { cursor: grabbing; transform: scale(1.05); }
+
+    /* Rigid image viewport */
+    .viewport {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-panel);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+      max-height: 75vh;
+    }
+
+    .viewport-inner {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #0d1117;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+    }
+
+    .viewport-inner img,
+    .viewport-inner iframe {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+      transition: opacity 0.15s ease;
+    }
+
+    .viewport-inner img.fade-out { opacity: 0; }
+    .viewport-inner iframe { border: none; width: 100%; min-height: 400px; }
+
+    .viewport-title {
+      padding: 0.6rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .image-type-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+    }
+
+    .image-tab {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      background: var(--bg);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      transition: all 0.15s;
+    }
+
+    .image-tab:hover { color: var(--text); }
+    .image-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    /* Specs panel */
+    .specs {
+      width: 200px;
+      min-width: 180px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .specs h3 {
+      margin: 0 0 0.25rem 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .specs .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95rem;
+    }
+
+    .specs .pass-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+
+    .specs .pass-badge.pass { background: rgba(34, 197, 94, 0.2); color: var(--pass); }
+    .specs .pass-badge.fail { background: rgba(239, 68, 68, 0.2); color: var(--fail); }
+
+    .specs .slice-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-bottom: 0.25rem;
+    }
+
+    .error-msg {
+      padding: 1.5rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid var(--fail);
+      border-radius: 8px;
+      color: #fca5a5;
+      max-width: 400px;
+    }
+
+    .error-msg code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="viewer" id="viewer">
+    <div class="scrubber-rail" id="scrubber-rail">
+      <div class="scrubber-track"></div>
+      <div class="scrubber-thumb" id="scrubber-thumb"></div>
+    </div>
+
+    <div class="viewport">
+      <div class="viewport-title" id="viewport-title">—</div>
+      <div class="viewport-inner" id="viewport-inner">
+        <img id="viewport-img" src="" alt="">
+        <iframe id="viewport-iframe" style="display:none;" title="Coil geometry"></iframe>
+        <div class="img-placeholder" id="img-placeholder" style="display:none; color: var(--text-dim); font-size: 0.9rem;">Image not found</div>
+      </div>
+      <div class="image-type-tabs" id="image-type-tabs"></div>
+      <div class="slice-label" id="slice-label" style="padding: 0.5rem 1rem; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border);">Design 1 of 12</div>
+    </div>
+
+    <div class="specs" id="specs">
+      <h3>Design</h3>
+      <div class="value" id="spec-r">—</div>
+      <div class="value" id="spec-a">—</div>
+      <div class="value" id="spec-a-val">—</div>
+      <h3>|B·n̂/B|</h3>
+      <div class="value" id="spec-mean">—</div>
+      <div class="value" id="spec-max">—</div>
+      <div class="pass-badge pass" id="spec-pass" style="display:none">PASS</div>
+      <div class="pass-badge fail" id="spec-fail" style="display:none">FAIL</div>
+    </div>
+  </div>
+
+  <script>
+    const BASE = 'stage4_outputs';
+    const STAGE3_BASE = 'stage3_outputs';
+    const STAGE5_BASE = 'stage5_outputs';
+    let designs = [];
+    let currentIndex = 0;
+    const IMAGES = [
+      { file: 'Bn_over_B_surface.png', label: 'Normal field error |B·n̂/B| on LCFS', tab: '|B·n̂/B| error', base: BASE },
+      { file: 'plasma_surfaces.png', label: 'Flux surfaces (plasma cross-sections)', tab: 'Flux surfaces', base: BASE },
+      { file: 'coils_optimized.png', label: 'Optimized coils', tab: 'Coils', base: BASE, fallback: 'coils_optimized.html' },
+      { file: 'flux_surfaces.png', label: 'QA flux surfaces (ι/2π contours)', tab: 'QA flux', base: STAGE3_BASE },
+      { file: 'boundary.png', label: 'Plasma boundary (LCFS)', tab: 'Boundary', base: STAGE3_BASE },
+      { file: 'B_boozer.png', label: '|B| on Boozer angles', tab: '|B| Boozer', base: STAGE3_BASE },
+      { file: 'tau_E_vs_A.png', label: 'τ_E vs aspect ratio A', tab: 'τ_E vs A', base: STAGE5_BASE, global: true },
+      { file: 'cost_vs_A.png', label: 'Cost vs aspect ratio A', tab: 'Cost vs A', base: STAGE5_BASE, global: true },
+      { file: 'R_neutrons_vs_A.png', label: 'Neutron rate vs aspect ratio A', tab: 'R_neutrons vs A', base: STAGE5_BASE, global: true },
+    ];
+    let imageMode = 0;
+
+    function dirName(d) {
+      const R = d.R0 ?? d.R0_target ?? 1;
+      const a = d.a ?? d.a_target ?? 0;
+      return `sweep_R${R.toFixed(2)}_a${a.toFixed(3)}`;
+    }
+
+    async function loadSummary() {
+      try {
+        const r = await fetch(`${BASE}/sweep_summary.json`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        designs = await r.json();
+        if (designs.length === 0) throw new Error('No designs');
+        initViewer();
+        renderImageTabs();
+        setIndex(0);
+      } catch (e) {
+        document.body.innerHTML = `
+          <div class="error-msg">
+            Could not load sweep data. Run from project root with a local server:<br><br>
+            <code>python3 -m http.server 8000</code><br><br>
+            Then open <code>http://localhost:8000/sweep_viewer.html</code>
+          </div>
+        `;
+      }
+    }
+
+    function setIndex(i) {
+      currentIndex = Math.max(0, Math.min(i, designs.length - 1));
+      const d = designs[currentIndex];
+      const dir = dirName(d);
+      const im = IMAGES[imageMode];
+      const img = document.getElementById('viewport-img');
+      const iframe = document.getElementById('viewport-iframe');
+      const placeholder = document.getElementById('img-placeholder');
+
+      const imgsrc = im.global
+        ? `${im.base}/${im.file}`
+        : `${im.base}/${dir}/${im.file}`;
+
+      iframe.style.display = 'none';
+      placeholder.style.display = 'none';
+      img.classList.add('fade-out');
+      img.src = imgsrc;
+      img.alt = im.label;
+
+      img.onerror = () => {
+        img.style.display = 'none';
+        img.classList.remove('fade-out');
+        if (im.fallback) {
+          const fallbackSrc = im.global ? `${im.base}/${im.fallback}` : `${im.base}/${dir}/${im.fallback}`;
+          iframe.src = fallbackSrc;
+          iframe.style.display = 'block';
+        } else {
+          placeholder.style.display = 'block';
+        }
+      };
+
+      img.onload = () => {
+        img.style.display = 'block';
+        img.style.opacity = '1';
+        img.classList.remove('fade-out');
+      };
+
+      // Update specs
+      const R = (d.R0 ?? d.R0_target ?? 1).toFixed(2);
+      const a = (d.a ?? d.a_target ?? 0).toFixed(3);
+      const A = (d.A ?? d.R0 / d.a ?? 0).toFixed(2);
+      document.getElementById('spec-r').textContent = `R = ${R} m`;
+      document.getElementById('spec-a').textContent = `a = ${a} m`;
+      document.getElementById('spec-a-val').textContent = `A = ${A}`;
+      const meanB = d.mean_BnB != null ? d.mean_BnB.toExponential(2) : '—';
+      const maxB = d.max_BnB != null ? d.max_BnB.toExponential(2) : '—';
+      document.getElementById('spec-mean').textContent = `mean = ${meanB}`;
+      document.getElementById('spec-max').textContent = `max = ${maxB}`;
+      const pass = d.pass !== undefined ? d.pass : true;
+      document.getElementById('spec-pass').style.display = pass ? 'inline-block' : 'none';
+      document.getElementById('spec-fail').style.display = pass ? 'none' : 'inline-block';
+
+      document.getElementById('viewport-title').textContent = im.label;
+      document.getElementById('slice-label').textContent = im.global
+        ? 'Sweep summary (all designs)'
+        : `Design ${currentIndex + 1} of ${designs.length}`;
+
+      updateThumbPosition();
+    }
+
+    function indexFromY(y) {
+      const rail = document.getElementById('scrubber-rail');
+      const rect = rail.getBoundingClientRect();
+      const pad = 20;
+      const h = rect.height - pad * 2;
+      const frac = 1 - (y - rect.top - pad) / h;
+      return Math.round(frac * (designs.length - 1));
+    }
+
+    function updateThumbPosition() {
+      const thumb = document.getElementById('scrubber-thumb');
+      const rail = document.getElementById('scrubber-rail');
+      const rect = rail.getBoundingClientRect();
+      const pad = 20;
+      const h = rect.height - pad * 2;
+      const frac = designs.length > 1 ? currentIndex / (designs.length - 1) : 0;
+      const top = pad + (1 - frac) * h;
+      thumb.style.top = top + 'px';
+    }
+
+    function renderImageTabs() {
+      const container = document.getElementById('image-type-tabs');
+      container.innerHTML = IMAGES.map((im, i) =>
+        `<button class="image-tab ${i === imageMode ? 'active' : ''}" data-mode="${i}">${im.tab}</button>`
+      ).join('');
+      container.querySelectorAll('.image-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          imageMode = parseInt(btn.dataset.mode, 10);
+          container.querySelectorAll('.image-tab').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          setIndex(currentIndex);
+        });
+      });
+    }
+
+    function initViewer() {
+      const rail = document.getElementById('scrubber-rail');
+      const thumb = document.getElementById('scrubber-thumb');
+      let dragging = false;
+
+      function onMove(clientY) {
+        const i = indexFromY(clientY);
+        if (i !== currentIndex) setIndex(i);
+      }
+
+      thumb.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+      });
+
+      rail.addEventListener('mousedown', (e) => {
+        if (e.target === thumb) return;
+        dragging = true;
+        onMove(e.clientY);
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (dragging) onMove(e.clientY);
+      });
+
+      document.addEventListener('mouseup', () => { dragging = false; });
+
+      // Wheel over viewer
+      document.getElementById('viewport-inner').addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 1 : -1;
+        setIndex(currentIndex + delta);
+      }, { passive: false });
+
+      rail.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 1 : -1;
+        setIndex(currentIndex + delta);
+      }, { passive: false });
+
+      // Resize thumb position
+      window.addEventListener('resize', () => updateThumbPosition());
+
+      updateThumbPosition();
+    }
+
+    loadSummary();
+  </script>
+</body>
+</html>

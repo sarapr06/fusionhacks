@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE / OS
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Large generated outputs (regenerate with run_pipeline.sh)
+stage3_outputs/
+stage4_outputs/
+
+# PDFs (large reference docs)
+*.pdf
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints

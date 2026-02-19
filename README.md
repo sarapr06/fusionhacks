@@ -4,18 +4,6 @@ Design of a quasi-axisymmetric (QA) stellarator for Mo-99 medical isotope produc
 
 ---
 
-## Quick Start
-
-```bash
-# Create submission for judging
-python3 submission.py 3    # → final/group_3.h5
-# Then upload group_3.h5 to: https://drive.google.com/drive/folders/1wxVA_HxOhK516EHamZHBWYU6y7mNv60u?usp=sharing
-```
-
-See [SUBMISSION.md](SUBMISSION.md) for full submission instructions.
-
----
-
 ## Final Design Summary
 
 | Parameter | Value |
